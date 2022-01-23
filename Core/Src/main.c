@@ -92,7 +92,6 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   MX_USART2_UART_Init();
-
   /* USER CODE BEGIN 2 */
   NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
   nrf24_DebugUART_Init(huart2);
@@ -104,7 +103,11 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-
+	// HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	HAL_Delay(2900);
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	HAL_Delay(100);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -230,11 +233,22 @@ static void MX_GPIO_Init(void)
   GPIO_InitTypeDef GPIO_InitStruct = {0};
 
   /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, CSNpin_Pin|CEpin_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : LED_Pin */
+  GPIO_InitStruct.Pin = LED_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : CSNpin_Pin CEpin_Pin */
   GPIO_InitStruct.Pin = CSNpin_Pin|CEpin_Pin;
