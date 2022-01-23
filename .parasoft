@@ -1,0 +1,29 @@
+#Sun Jan 23 21:33:08 CET 2022
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.cdt.configuration=CPPTEST_USE_ACTIVE_CONFIG
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.compiler.command.c.win32.x86=gcc
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.compiler.command.cpp.win32.x86=g++
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.compiler.family.win32.x86=gcc_7-64
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.compiler.options.win32.x86=${cpptest\:original_options} -DPARASOFT_CPPTEST
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.dependency.files.paths=${project_loc}/Makefile
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.dsp.env.var.mode=ENV_PATCH_PREPEND_MODE
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.edg.multibyte.chars.is.source.handling=AUTO
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.evc.env.var.mode=ENV_PATCH_PREPEND_MODE
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.extractor.id=cdt_extractor_id
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.linker.command.win32.x86=g++
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.linker.options.win32.x86=${cpptest\:original_options}
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.make.command.line=make -i -B CXX\=${CPPTEST_SCAN} CC\=${CPPTEST_SCAN} LD\=${CPPTEST_SCAN}
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.make.scan.hash.code.validation=true
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.make.working.dir=${project_loc}
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.make_always_build=false
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.ode_auto_scan_mode=on_changes
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.ode_delete_bdf_postaction=false
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.ode_incremental_build=false
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.ode_options_dir=${project_loc}/cpptestscan.bdf
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.run_orig_cmd_for_parallel_proj_bdf=true
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.runtime.location=${cpptest\:engine_loc}/runtime
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.synchronize_with_project_settings=true
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.test.case.location.patterns=*
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.test.ware.location=${workspace_loc}/.cpptest/${project_name}
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.vc71.configuration=CPPTEST_USE_ACTIVE_CONFIG
+/BlackPill_nRF24_Tx//com.parasoft.xtest.checkers.api.cpp.options.working.dir=${project_loc}
+project.path=/BlackPill_nRF24_Tx
