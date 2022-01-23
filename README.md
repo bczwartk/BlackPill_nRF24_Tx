@@ -1,2 +1,4 @@
 # BlackPill_nRF24_Tx
-Transmitter based on STM32 BlackPill with nRF24L01+
+Simple transmitter based on STM32 BlackPill with nRF24L01+.
+
+It uses a great nRF24 library made available by [MYaqoobEmbedded](https://github.com/MYaqoobEmbedded) - see [Tutorial 24 - NRF24L01 Radio Transceiver](https://github.com/MYaqoobEmbedded/STM32-Tutorials/tree/master/Tutorial%2024%20-%20NRF24L01%20Radio%20Transceiver).
