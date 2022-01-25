@@ -59,7 +59,8 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
+uint64_t txPipeAddress = 0x2109BC1971;
+char txData[32] = "Hello World!";
 /* USER CODE END 0 */
 
 /**
@@ -92,10 +93,19 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   MX_USART2_UART_Init();
+
   /* USER CODE BEGIN 2 */
   NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
   nrf24_DebugUART_Init(huart2);
   printRadioSettings();
+
+  // transmit w/o ACK
+  NRF24_stopListening();
+  NRF24_openWritingPipe(txPipeAddress);
+  NRF24_setAutoAck(false);
+  NRF24_setChannel(52);
+  NRF24_setPayloadSize(32);
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -103,11 +113,15 @@ int main(void)
   while (1)
   {
     /* USER CODE END WHILE */
-	// HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-	HAL_Delay(2900);
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 	HAL_Delay(100);
+
+	if (NRF24_write(txData, 32)) {
+		HAL_UART_Transmit(&huart2, (uint8_t *)"Tx success\r\n", strlen("Tx success\r\n"), 10);
+	}
+
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	HAL_Delay(2900);
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
