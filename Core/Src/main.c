@@ -105,6 +105,7 @@ int main(void)
   NRF24_setAutoAck(false);
   NRF24_setChannel(52);
   NRF24_setPayloadSize(32);
+  printRadioSettings();
 
   /* USER CODE END 2 */
 
