@@ -102,7 +102,7 @@ int main(void)
   // transmit w/o ACK
   NRF24_stopListening();
   NRF24_openWritingPipe(txPipeAddress);
-  NRF24_setAutoAck(false);
+  NRF24_setAutoAck(true);
   NRF24_setChannel(52);
   NRF24_setPayloadSize(32);
   printRadioSettings();
