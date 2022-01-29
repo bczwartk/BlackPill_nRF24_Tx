@@ -97,7 +97,7 @@ int main(void)
   /* USER CODE BEGIN 2 */
   NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
   nrf24_DebugUART_Init(huart2);
-  printRadioSettings();
+  // printRadioSettings();
 
   // transmit w/o ACK
   NRF24_stopListening();
@@ -106,6 +106,7 @@ int main(void)
   NRF24_setChannel(52);
   NRF24_setPayloadSize(32);
   printRadioSettings();
+  HAL_UART_Transmit(&huart2, (uint8_t *)"Tx ready\r\n", strlen("Tx ready\r\n"), 10);
 
   /* USER CODE END 2 */
 
