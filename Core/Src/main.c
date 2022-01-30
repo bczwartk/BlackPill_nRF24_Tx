@@ -59,8 +59,14 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+
+typedef struct {
+	uint32_t revId;
+	uint32_t devId;
+	char payload[16];
+} ExchangeData_t;
+
 uint64_t txPipeAddress = 0x2109BC1971;
-char txData[32] = "Hello World!";
 /* USER CODE END 0 */
 
 /**
@@ -97,17 +103,21 @@ int main(void)
   /* USER CODE BEGIN 2 */
   NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
   nrf24_DebugUART_Init(huart2);
-  // printRadioSettings();
 
-  // transmit w/o ACK
+  // transmit with ACK
   NRF24_stopListening();
   NRF24_openWritingPipe(txPipeAddress);
   NRF24_setAutoAck(true);
   NRF24_setChannel(52);
-  NRF24_setPayloadSize(32);
+  NRF24_setPayloadSize(sizeof(ExchangeData_t));
   printRadioSettings();
   HAL_UART_Transmit(&huart2, (uint8_t *)"Tx ready\r\n", strlen("Tx ready\r\n"), 10);
 
+  ExchangeData_t data;
+  data.revId = HAL_GetREVID();
+  data.devId = HAL_GetDEVID();
+  memset(&data.payload, 0, sizeof(data.payload));
+  strcpy(data.payload, "Hello world!");
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -118,7 +128,7 @@ int main(void)
 	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 	HAL_Delay(100);
 
-	if (NRF24_write(txData, 32)) {
+	if (NRF24_write(&data, sizeof(data))) {
 		HAL_UART_Transmit(&huart2, (uint8_t *)"Tx success\r\n", strlen("Tx success\r\n"), 10);
 	}
 
