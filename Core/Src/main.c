@@ -118,6 +118,10 @@ int main(void)
   data.devId = HAL_GetDEVID();
   memset(&data.payload, 0, sizeof(data.payload));
   strcpy(data.payload, "Hello world!");
+
+  char msg[64];
+  sprintf(msg, "%lx/%lx: %16s\r\n", data.revId, data.devId, data.payload);
+  HAL_UART_Transmit(&huart2, (uint8_t *) msg, sizeof(msg), 10);
   /* USER CODE END 2 */
 
   /* Infinite loop */
