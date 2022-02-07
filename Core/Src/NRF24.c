@@ -18,6 +18,7 @@ References:				This library was written based on the Arduino NRF24 Open-Source l
 */
 
 //List of header files
+#include <stdio.h>
 #include "NRF24.h"
 
 //*** Variables declaration ***//

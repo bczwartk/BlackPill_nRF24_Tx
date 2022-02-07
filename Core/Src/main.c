@@ -22,6 +22,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
+
 #include "NRF24.h"
 /* USER CODE END Includes */
 
@@ -32,6 +34,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define US_CLOCK_DELAY (1)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -41,6 +44,8 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi1;
+
+TIM_HandleTypeDef htim3;
 
 UART_HandleTypeDef huart2;
 
@@ -53,6 +58,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_TIM3_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -67,6 +73,286 @@ typedef struct {
 } ExchangeData_t;
 
 uint64_t txPipeAddress = 0x2109BC1971;
+
+
+// NOTE:
+// Code to work with 1-wire and DS18B20 was taken from an excellent Forbot course on STM32L4:
+//     https://forbot.pl/blog/kurs-stm32l4-termometry-ds18b20-1-wire-uart-id47771
+
+int __io_putchar(int ch)
+{
+  if (ch == '\n') {
+    __io_putchar('\r');
+  }
+  HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, HAL_MAX_DELAY);
+  return 1;
+}
+
+#if US_CLOCK_DELAY
+void delay_us(uint32_t us)
+{
+  // TODO: assert: 'us' must be smaller than 2^16, this is max counter period for 16-bit timers
+  __HAL_TIM_SET_COUNTER(&htim3, 0);
+  while ((__HAL_TIM_GET_COUNTER(&htim3)) < us) {  }
+}
+#else
+static void set_baudrate(uint32_t baudrate)
+{
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = baudrate;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+#endif
+
+HAL_StatusTypeDef wire_reset(void)
+{
+#if US_CLOCK_DELAY
+	  int rc;
+
+	  HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_RESET);
+	  delay_us(480);
+	  HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_SET);
+	  delay_us(70);
+	  rc = HAL_GPIO_ReadPin(DS_GPIO_Port, DS_Pin);
+	  delay_us(410);
+
+	  if (rc == 0)
+	    return HAL_OK;
+	  else
+	    return HAL_ERROR;
+#else
+  uint8_t data_out = 0xF0;
+  uint8_t data_in = 0;
+
+  set_baudrate(9600);
+  HAL_UART_Transmit(&huart1, &data_out, 1, HAL_MAX_DELAY);
+  HAL_UART_Receive(&huart1, &data_in, 1, HAL_MAX_DELAY);
+  set_baudrate(115200);
+
+  if (data_in != 0xF0)
+    return HAL_OK;
+  else
+    return HAL_ERROR;
+#endif
+}
+
+static void write_bit(int value)
+{
+#if US_CLOCK_DELAY
+	  if (value) {
+	    HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_RESET);
+	    delay_us(6);
+	    HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_SET);
+	    delay_us(64);
+	  } else {
+	    HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_RESET);
+	    delay_us(60);
+	    HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_SET);
+	    delay_us(10);
+	  }
+#else
+  if (value) {
+      uint8_t data_out = 0xff;
+    HAL_UART_Transmit(&huart1, &data_out, 1, HAL_MAX_DELAY);
+  } else {
+      uint8_t data_out = 0x0;
+    HAL_UART_Transmit(&huart1, &data_out, 1, HAL_MAX_DELAY);
+  }
+#endif
+}
+
+static int read_bit(void)
+{
+#if US_CLOCK_DELAY
+	  int rc;
+	  HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_RESET);
+	  delay_us(6);
+	  HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_SET);
+	  delay_us(9);
+	  rc = HAL_GPIO_ReadPin(DS_GPIO_Port, DS_Pin);
+	  delay_us(55);
+	  return rc;
+#else
+  uint8_t data_out = 0xFF;
+  uint8_t data_in = 0;
+  HAL_UART_Transmit(&huart1, &data_out, 1, HAL_MAX_DELAY);
+  HAL_UART_Receive(&huart1, &data_in, 1, HAL_MAX_DELAY);
+  return data_in & 0x01;
+#endif
+}
+
+HAL_StatusTypeDef wire_init(void)
+{
+#if US_CLOCK_DELAY
+  return HAL_TIM_Base_Start(&htim3);
+#endif
+}
+
+uint8_t wire_read(void)
+{
+  uint8_t value = 0;
+  int i;
+  for (i = 0; i < 8; i++) {
+    value >>= 1;
+    if (read_bit())
+      value |= 0x80;
+  }
+  return value;
+}
+
+void wire_read_buf(uint8_t * buf, int len)
+{
+    for (int i = 0; i < len; i++) {
+      buf[i] = wire_read();
+    }
+}
+
+void wire_write(uint8_t byte)
+{
+  int i;
+  for (i = 0; i < 8; i++) {
+    write_bit(byte & 0x01);
+    byte >>= 1;
+  }
+}
+
+static uint8_t byte_crc(uint8_t crc, uint8_t byte)
+{
+  int i;
+  for (i = 0; i < 8; i++) {
+    uint8_t b = crc ^ byte;
+    crc >>= 1;
+    if (b & 0x01)
+      crc ^= 0x8c;
+    byte >>= 1;
+  }
+  return crc;
+}
+
+uint8_t wire_crc(const uint8_t* data, int len)
+{
+  int i;
+    uint8_t crc = 0;
+
+    for (i = 0; i < len; i++)
+      crc = byte_crc(crc, data[i]);
+
+    return crc;
+}
+
+
+#define DS18B20_ROM_CODE_SIZE		8
+#define DS18B20_SCRATCHPAD_SIZE    9
+#define DS18B20_READ_ROM           0x33
+#define DS18B20_MATCH_ROM          0x55
+#define DS18B20_SKIP_ROM           0xCC
+#define DS18B20_CONVERT_T          0x44
+#define DS18B20_READ_SCRATCHPAD    0xBE
+#define DS18B20_INVALID_TEMP       0x0550
+
+typedef struct {
+	int16_t temp;
+	uint8_t address[DS18B20_ROM_CODE_SIZE];
+} DS18B20Data_t;
+
+HAL_StatusTypeDef ds18b20_init(void)
+{
+  return wire_init();
+}
+
+HAL_StatusTypeDef ds18b20_read_address(uint8_t* rom_code)
+{
+  int i;
+  uint8_t crc;
+
+  if (wire_reset() != HAL_OK)
+    return HAL_ERROR;
+
+  wire_write(DS18B20_READ_ROM);
+
+  for (i = 0; i < DS18B20_ROM_CODE_SIZE; i++)
+    rom_code[i] = wire_read();
+
+  crc = wire_crc(rom_code, DS18B20_ROM_CODE_SIZE - 1);
+  if (rom_code[DS18B20_ROM_CODE_SIZE - 1] == crc)
+    return HAL_OK;
+  else
+    return HAL_ERROR;
+}
+
+static HAL_StatusTypeDef send_cmd(const uint8_t* rom_code, uint8_t cmd)
+{
+  int i;
+
+  if (wire_reset() != HAL_OK)
+    return HAL_ERROR;
+
+  if (!rom_code) {
+    wire_write(DS18B20_SKIP_ROM);
+  } else {
+    wire_write(DS18B20_MATCH_ROM);
+    for (i = 0; i < DS18B20_ROM_CODE_SIZE; i++)
+      wire_write(rom_code[i]);
+  }
+  wire_write(cmd);
+  return HAL_OK;
+}
+
+HAL_StatusTypeDef ds18b20_start_measure(const uint8_t* rom_code)
+{
+  return send_cmd(rom_code, DS18B20_CONVERT_T);
+}
+
+static HAL_StatusTypeDef ds18b20_read_scratchpad(const uint8_t* rom_code, uint8_t* scratchpad)
+{
+  int i;
+  uint8_t crc;
+
+  if (send_cmd(rom_code, DS18B20_READ_SCRATCHPAD) != HAL_OK)
+    return HAL_ERROR;
+
+  for (i = 0; i < DS18B20_SCRATCHPAD_SIZE; i++)
+    scratchpad[i] = wire_read();
+
+  crc = wire_crc(scratchpad, DS18B20_SCRATCHPAD_SIZE - 1);
+  if (scratchpad[DS18B20_SCRATCHPAD_SIZE - 1] == crc)
+    return HAL_OK;
+  else
+    return HAL_ERROR;
+}
+
+float ds18b20_get_temp(const uint8_t* rom_code)
+{
+  uint8_t scratchpad[DS18B20_SCRATCHPAD_SIZE];
+  int16_t temp;
+
+  if (ds18b20_read_scratchpad(rom_code, scratchpad) != HAL_OK)
+    return 85.0f;
+
+  memcpy(&temp, &scratchpad[0], sizeof(temp));
+
+  return temp / 16.0f;
+}
+
+int16_t ds18b20_get_raw_temp(const uint8_t* rom_code)
+{
+  uint8_t scratchpad[DS18B20_SCRATCHPAD_SIZE];
+  int16_t temp = DS18B20_INVALID_TEMP;
+  if (ds18b20_read_scratchpad(rom_code, scratchpad) != HAL_OK)
+    return temp;
+  memcpy(&temp, &scratchpad[0], sizeof(temp));
+  return temp;
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -99,11 +385,19 @@ int main(void)
   MX_GPIO_Init();
   MX_SPI1_Init();
   MX_USART2_UART_Init();
-
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
   nrf24_DebugUART_Init(huart2);
 
+  // blink fast to say hello
+  for (int i = 0; i < 10; i++) {
+    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+    HAL_Delay(50);
+  }
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+
+  // --- NRF24 code
   // transmit with ACK
   NRF24_stopListening();
   NRF24_openWritingPipe(txPipeAddress);
@@ -122,23 +416,86 @@ int main(void)
   char msg[64];
   sprintf(msg, "%lx/%lx: %16s\r\n", data.revId, data.devId, data.payload);
   HAL_UART_Transmit(&huart2, (uint8_t *) msg, sizeof(msg), 10);
+
+
+  // --- DS18B20 code
+#if 0
+  // get address of DS18B20
+  if (ds18b20_init() != HAL_OK) {
+    Error_Handler();
+  }
+  uint8_t ds1[DS18B20_ROM_CODE_SIZE];
+  if (ds18b20_read_address(ds1) != HAL_OK) {
+    Error_Handler();
+  }
+#endif
+
+  if (ds18b20_init() != HAL_OK) {
+    Error_Handler();
+  }
+
+  // R106D26:
+  // const uint8_t ds1[] = { 0x28, 0xFF, 0xF2, 0xB5, 0x50, 0x16, 0x03, 0xA2 };
+  // const uint8_t ds2[] = { 0x28, 0x21, 0x20, 0xD6, 0x07, 0x00, 0x00, 0x15 };
+  // G3059:
+  const uint8_t ds1[] = { 0x28, 0xFF, 0x87, 0xAF, 0x36, 0x16, 0x04, 0xC9 };
+  const uint8_t ds2[] = { 0x28, 0xC4, 0x8C, 0xE9, 0x07, 0x00, 0x00, 0x17 };
+
+  // TODO: dynamically detect DS sensors and their addresses
+
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
+  int16_t temp = DS18B20_INVALID_TEMP;
+  DS18B20Data_t tempData;
   while (1)
   {
-    /* USER CODE END WHILE */
-    /* USER CODE BEGIN 3 */
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-	HAL_Delay(100);
+	  memset(&data.payload, 0, sizeof(data.payload));
 
-	if (NRF24_write(&data, sizeof(data))) {
+	  ds18b20_start_measure(ds1);
+	  ds18b20_start_measure(ds2);
+	  HAL_Delay(750);
+
+	  temp = ds18b20_get_raw_temp(ds1);
+	  tempData.temp = temp;
+	  memcpy(&tempData.address, &ds1[0], sizeof(ds1));
+	  if (temp == DS18B20_INVALID_TEMP) {
+	    printf("Sensor error (1)...\n");
+	  } else {
+	    printf("T1 = %.1f*C\n", (temp / 16.0f));
+	  }
+      if (NRF24_write(&tempData, sizeof(tempData))) {
 		HAL_UART_Transmit(&huart2, (uint8_t *)"Tx success\r\n", strlen("Tx success\r\n"), 10);
-	}
+	  }
 
-	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-	HAL_Delay(2900);
+	  temp = ds18b20_get_raw_temp(ds2);
+	  tempData.temp = temp;
+	  memcpy(&tempData.address, &ds1[0], sizeof(ds1));
+	  if (temp == DS18B20_INVALID_TEMP) {
+	    printf("Sensor error (2)...\n");
+	  } else {
+	    printf("T2 = %.1f*C\n", (temp / 16.0f));
+	  }
+      if (NRF24_write(&tempData, sizeof(tempData))) {
+		HAL_UART_Transmit(&huart2, (uint8_t *)"Tx success\r\n", strlen("Tx success\r\n"), 10);
+	  }
+
+	  HAL_Delay(5000);
+	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	  HAL_Delay(100);
+	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	  HAL_Delay(100);
+
+    /* USER CODE END WHILE */
+
+    /* USER CODE BEGIN 3 */
+	// HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	// HAL_Delay(100);
+
+	// HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	// HAL_Delay(2900);
   }
   /* USER CODE END 3 */
 }
@@ -221,6 +578,51 @@ static void MX_SPI1_Init(void)
 }
 
 /**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 15;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 65535;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim3, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
+
+}
+
+/**
   * @brief USART2 Initialization Function
   * @param None
   * @retval None
@@ -271,6 +673,9 @@ static void MX_GPIO_Init(void)
   HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(DS_GPIO_Port, DS_Pin, GPIO_PIN_SET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, CSNpin_Pin|CEpin_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin : LED_Pin */
@@ -279,6 +684,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(LED_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : DS_Pin */
+  GPIO_InitStruct.Pin = DS_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_OD;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(DS_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : CSNpin_Pin CEpin_Pin */
   GPIO_InitStruct.Pin = CSNpin_Pin|CEpin_Pin;
