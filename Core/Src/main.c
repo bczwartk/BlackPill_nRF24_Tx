@@ -330,19 +330,6 @@ static HAL_StatusTypeDef ds18b20_read_scratchpad(const uint8_t* rom_code, uint8_
     return HAL_ERROR;
 }
 
-float ds18b20_get_temp(const uint8_t* rom_code)
-{
-  uint8_t scratchpad[DS18B20_SCRATCHPAD_SIZE];
-  int16_t temp;
-
-  if (ds18b20_read_scratchpad(rom_code, scratchpad) != HAL_OK)
-    return 85.0f;
-
-  memcpy(&temp, &scratchpad[0], sizeof(temp));
-
-  return temp / 16.0f;
-}
-
 int16_t ds18b20_get_raw_temp(const uint8_t* rom_code)
 {
   uint8_t scratchpad[DS18B20_SCRATCHPAD_SIZE];
@@ -351,6 +338,19 @@ int16_t ds18b20_get_raw_temp(const uint8_t* rom_code)
     return temp;
   memcpy(&temp, &scratchpad[0], sizeof(temp));
   return temp;
+}
+
+void ds18b20_get_raw_temp_data(const uint8_t* addr, DS18B20Data_t * pData)
+{
+	if (pData) {
+	  pData->temp = ds18b20_get_raw_temp(addr);
+	  memcpy(&pData->address[0], &addr[0], DS18B20_ROM_CODE_SIZE);
+	}
+}
+
+float ds18b20_get_temp(const uint8_t* rom_code)
+{
+    return ds18b20_get_raw_temp(rom_code) / 16.0f;
 }
 
 /* USER CODE END 0 */
@@ -403,20 +403,10 @@ int main(void)
   NRF24_openWritingPipe(txPipeAddress);
   NRF24_setAutoAck(true);
   NRF24_setChannel(52);
-  NRF24_setPayloadSize(sizeof(ExchangeData_t));
+  // NRF24_setPayloadSize(sizeof(ExchangeData_t));
+  NRF24_setPayloadSize(sizeof(DS18B20Data_t));
   printRadioSettings();
-  HAL_UART_Transmit(&huart2, (uint8_t *)"Tx ready\r\n", strlen("Tx ready\r\n"), 10);
-
-  ExchangeData_t data;
-  data.revId = HAL_GetREVID();
-  data.devId = HAL_GetDEVID();
-  memset(&data.payload, 0, sizeof(data.payload));
-  strcpy(data.payload, "Hello world!");
-
-  char msg[64];
-  sprintf(msg, "%lx/%lx: %16s\r\n", data.revId, data.devId, data.payload);
-  HAL_UART_Transmit(&huart2, (uint8_t *) msg, sizeof(msg), 10);
-
+  printf("Tx ready\r\n");
 
   // --- DS18B20 code
 #if 0
@@ -448,38 +438,35 @@ int main(void)
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  int16_t temp = DS18B20_INVALID_TEMP;
   DS18B20Data_t tempData;
   while (1)
   {
-	  memset(&data.payload, 0, sizeof(data.payload));
-
 	  ds18b20_start_measure(ds1);
 	  ds18b20_start_measure(ds2);
 	  HAL_Delay(750);
 
-	  temp = ds18b20_get_raw_temp(ds1);
-	  tempData.temp = temp;
-	  memcpy(&tempData.address, &ds1[0], sizeof(ds1));
-	  if (temp == DS18B20_INVALID_TEMP) {
+	  ds18b20_get_raw_temp_data(ds1, &tempData);
+	  if (tempData.temp == DS18B20_INVALID_TEMP) {
 	    printf("Sensor error (1)...\n");
 	  } else {
-	    printf("T1 = %.1f*C\n", (temp / 16.0f));
+	    printf("T1 = %.1f*C\n", (tempData.temp / 16.0f));
 	  }
       if (NRF24_write(&tempData, sizeof(tempData))) {
-		HAL_UART_Transmit(&huart2, (uint8_t *)"Tx success\r\n", strlen("Tx success\r\n"), 10);
+    	printf("Tx 1 success\r\n");
 	  }
 
-	  temp = ds18b20_get_raw_temp(ds2);
-	  tempData.temp = temp;
-	  memcpy(&tempData.address, &ds1[0], sizeof(ds1));
-	  if (temp == DS18B20_INVALID_TEMP) {
+      // nRF24 needs time to process the first Rx before the second one can be reliably received, esp. with ACK enabled
+      // add delay between Tx's, e.g. 50ms or 100ms, otherwise the second packet gets lost or Rx side sees garbage
+	  HAL_Delay(100);
+
+	  ds18b20_get_raw_temp_data(ds2, &tempData);
+	  if (tempData.temp == DS18B20_INVALID_TEMP) {
 	    printf("Sensor error (2)...\n");
 	  } else {
-	    printf("T2 = %.1f*C\n", (temp / 16.0f));
+	    printf("T2 = %.1f*C\n", (tempData.temp / 16.0f));
 	  }
       if (NRF24_write(&tempData, sizeof(tempData))) {
-		HAL_UART_Transmit(&huart2, (uint8_t *)"Tx success\r\n", strlen("Tx success\r\n"), 10);
+      	printf("Tx 2 success\r\n");
 	  }
 
 	  HAL_Delay(5000);
@@ -491,11 +478,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	// HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
-	// HAL_Delay(100);
-
-	// HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
-	// HAL_Delay(2900);
   }
   /* USER CODE END 3 */
 }
