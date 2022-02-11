@@ -43,6 +43,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+RTC_HandleTypeDef hrtc;
+
 SPI_HandleTypeDef hspi1;
 
 TIM_HandleTypeDef htim3;
@@ -59,26 +61,13 @@ static void MX_GPIO_Init(void);
 static void MX_SPI1_Init(void);
 static void MX_USART2_UART_Init(void);
 static void MX_TIM3_Init(void);
+static void MX_RTC_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-typedef struct {
-	uint32_t revId;
-	uint32_t devId;
-	char payload[16];
-} ExchangeData_t;
-
-uint64_t txPipeAddress = 0x2109BC1971;
-
-
-// NOTE:
-// Code to work with 1-wire and DS18B20 was taken from an excellent Forbot course on STM32L4:
-//     https://forbot.pl/blog/kurs-stm32l4-termometry-ds18b20-1-wire-uart-id47771
-
 int __io_putchar(int ch)
 {
   if (ch == '\n') {
@@ -87,6 +76,55 @@ int __io_putchar(int ch)
   HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, HAL_MAX_DELAY);
   return 1;
 }
+
+void blink_hello()
+{
+	// a few fast blinks to say hello
+	for (int i = 0; i < 6; i++) {
+		HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+		HAL_Delay(50);
+	}
+	// be sure to turn off the LED
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+}
+
+
+#define DS18B20_ROM_CODE_SIZE		8
+#define DS18B20_SCRATCHPAD_SIZE    9
+#define DS18B20_READ_ROM           0x33
+#define DS18B20_MATCH_ROM          0x55
+#define DS18B20_SKIP_ROM           0xCC
+#define DS18B20_CONVERT_T          0x44
+#define DS18B20_READ_SCRATCHPAD    0xBE
+#define DS18B20_INVALID_TEMP       0x0550
+
+typedef struct {
+	int16_t temp;
+	uint8_t address[DS18B20_ROM_CODE_SIZE];
+} DS18B20Data_t;
+
+void nrf24_setup_radio()
+{
+	// --- NRF24 code
+	const uint64_t txPipeAddress = 0x2109BC1971;
+
+	// transmit with ACK
+	NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
+	nrf24_DebugUART_Init(huart2);
+	NRF24_stopListening();
+	NRF24_openWritingPipe(txPipeAddress);
+	NRF24_setAutoAck(true);
+	NRF24_setChannel(52);
+	// NRF24_setPayloadSize(sizeof(ExchangeData_t));
+	NRF24_setPayloadSize(sizeof(DS18B20Data_t));
+	printRadioSettings();
+	printf("Tx ready\r\n");
+}
+
+
+// NOTE:
+// Code to work with 1-wire and DS18B20 was taken from an excellent Forbot course on STM32L4:
+//     https://forbot.pl/blog/kurs-stm32l4-termometry-ds18b20-1-wire-uart-id47771
 
 #if US_CLOCK_DELAY
 void delay_us(uint32_t us)
@@ -250,20 +288,6 @@ uint8_t wire_crc(const uint8_t* data, int len)
 }
 
 
-#define DS18B20_ROM_CODE_SIZE		8
-#define DS18B20_SCRATCHPAD_SIZE    9
-#define DS18B20_READ_ROM           0x33
-#define DS18B20_MATCH_ROM          0x55
-#define DS18B20_SKIP_ROM           0xCC
-#define DS18B20_CONVERT_T          0x44
-#define DS18B20_READ_SCRATCHPAD    0xBE
-#define DS18B20_INVALID_TEMP       0x0550
-
-typedef struct {
-	int16_t temp;
-	uint8_t address[DS18B20_ROM_CODE_SIZE];
-} DS18B20Data_t;
-
 HAL_StatusTypeDef ds18b20_init(void)
 {
   return wire_init();
@@ -353,6 +377,69 @@ float ds18b20_get_temp(const uint8_t* rom_code)
     return ds18b20_get_raw_temp(rom_code) / 16.0f;
 }
 
+void measure_and_transmit()
+{
+#if 0
+	// get address of DS18B20
+	if (ds18b20_init() != HAL_OK) {
+		Error_Handler();
+	}
+	uint8_t ds1[DS18B20_ROM_CODE_SIZE];
+	if (ds18b20_read_address(ds1) != HAL_OK) {
+		Error_Handler();
+	}
+#endif
+
+	if (ds18b20_init() != HAL_OK) {
+		Error_Handler();
+	}
+
+	// R106D26:
+	const uint8_t ds1[] = { 0x28, 0xFF, 0xF2, 0xB5, 0x50, 0x16, 0x03, 0xA2 };
+	const uint8_t ds2[] = { 0x28, 0x21, 0x20, 0xD6, 0x07, 0x00, 0x00, 0x15 };
+	// G3059:
+	// const uint8_t ds1[] = { 0x28, 0xFF, 0x87, 0xAF, 0x36, 0x16, 0x04, 0xC9 };
+	// const uint8_t ds2[] = { 0x28, 0xC4, 0x8C, 0xE9, 0x07, 0x00, 0x00, 0x17 };
+
+	// TODO: dynamically detect DS sensors and their addresses
+	// See: https://www.maximintegrated.com/en/design/technical-documents/app-notes/1/187.html
+
+	DS18B20Data_t tempData;
+
+	ds18b20_start_measure(ds1);
+	ds18b20_start_measure(ds2);
+	HAL_Delay(750);
+
+	ds18b20_get_raw_temp_data(ds1, &tempData);
+	if (tempData.temp == DS18B20_INVALID_TEMP) {
+		printf("Sensor error (1)...\n");
+	} else {
+		printf("T1 = %.1f*C\n", (tempData.temp / 16.0f));
+	}
+	if (NRF24_write(&tempData, sizeof(tempData))) {
+		printf("Tx 1 success\r\n");
+	}
+
+	// nRF24 needs time to process the first Rx before the second one can be reliably received, esp. with ACK enabled
+	// add delay between Tx's, e.g. 50ms or 100ms, otherwise the second packet gets lost or Rx side sees garbage
+	HAL_Delay(100);
+
+	ds18b20_get_raw_temp_data(ds2, &tempData);
+	if (tempData.temp == DS18B20_INVALID_TEMP) {
+		printf("Sensor error (2)...\n");
+	} else {
+		printf("T2 = %.1f*C\n", (tempData.temp / 16.0f));
+	}
+	if (NRF24_write(&tempData, sizeof(tempData))) {
+		printf("Tx 2 success\r\n");
+	}
+
+	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	HAL_Delay(50);
+	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	HAL_Delay(50);
+} // measure_and_transmit()
+
 /* USER CODE END 0 */
 
 /**
@@ -386,95 +473,23 @@ int main(void)
   MX_SPI1_Init();
   MX_USART2_UART_Init();
   MX_TIM3_Init();
+  MX_RTC_Init();
   /* USER CODE BEGIN 2 */
-  NRF24_begin(CSNpin_GPIO_Port, CSNpin_Pin, CEpin_Pin, hspi1);
-  nrf24_DebugUART_Init(huart2);
 
-  // blink fast to say hello
-  for (int i = 0; i < 10; i++) {
-    HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-    HAL_Delay(50);
-  }
-  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+  blink_hello();
+  nrf24_setup_radio();
+  measure_and_transmit();
 
-  // --- NRF24 code
-  // transmit with ACK
-  NRF24_stopListening();
-  NRF24_openWritingPipe(txPipeAddress);
-  NRF24_setAutoAck(true);
-  NRF24_setChannel(52);
-  // NRF24_setPayloadSize(sizeof(ExchangeData_t));
-  NRF24_setPayloadSize(sizeof(DS18B20Data_t));
-  printRadioSettings();
-  printf("Tx ready\r\n");
-
-  // --- DS18B20 code
-#if 0
-  // get address of DS18B20
-  if (ds18b20_init() != HAL_OK) {
-    Error_Handler();
-  }
-  uint8_t ds1[DS18B20_ROM_CODE_SIZE];
-  if (ds18b20_read_address(ds1) != HAL_OK) {
-    Error_Handler();
-  }
-#endif
-
-  if (ds18b20_init() != HAL_OK) {
-    Error_Handler();
-  }
-
-  // R106D26:
-  // const uint8_t ds1[] = { 0x28, 0xFF, 0xF2, 0xB5, 0x50, 0x16, 0x03, 0xA2 };
-  // const uint8_t ds2[] = { 0x28, 0x21, 0x20, 0xD6, 0x07, 0x00, 0x00, 0x15 };
-  // G3059:
-  const uint8_t ds1[] = { 0x28, 0xFF, 0x87, 0xAF, 0x36, 0x16, 0x04, 0xC9 };
-  const uint8_t ds2[] = { 0x28, 0xC4, 0x8C, 0xE9, 0x07, 0x00, 0x00, 0x17 };
-
-  // TODO: dynamically detect DS sensors and their addresses
-
-
+  // Enter the Standby mode
+  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+  HAL_PWR_EnterSTANDBYMode();
+  // not reached
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
-  DS18B20Data_t tempData;
   while (1)
   {
-	  ds18b20_start_measure(ds1);
-	  ds18b20_start_measure(ds2);
-	  HAL_Delay(750);
-
-	  ds18b20_get_raw_temp_data(ds1, &tempData);
-	  if (tempData.temp == DS18B20_INVALID_TEMP) {
-	    printf("Sensor error (1)...\n");
-	  } else {
-	    printf("T1 = %.1f*C\n", (tempData.temp / 16.0f));
-	  }
-      if (NRF24_write(&tempData, sizeof(tempData))) {
-    	printf("Tx 1 success\r\n");
-	  }
-
-      // nRF24 needs time to process the first Rx before the second one can be reliably received, esp. with ACK enabled
-      // add delay between Tx's, e.g. 50ms or 100ms, otherwise the second packet gets lost or Rx side sees garbage
-	  HAL_Delay(100);
-
-	  ds18b20_get_raw_temp_data(ds2, &tempData);
-	  if (tempData.temp == DS18B20_INVALID_TEMP) {
-	    printf("Sensor error (2)...\n");
-	  } else {
-	    printf("T2 = %.1f*C\n", (tempData.temp / 16.0f));
-	  }
-      if (NRF24_write(&tempData, sizeof(tempData))) {
-      	printf("Tx 2 success\r\n");
-	  }
-
-	  HAL_Delay(5000);
-	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	  HAL_Delay(100);
-	  HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	  HAL_Delay(100);
-
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -490,6 +505,7 @@ void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+  RCC_PeriphCLKInitTypeDef PeriphClkInitStruct = {0};
 
   /** Configure the main internal regulator output voltage
   */
@@ -498,9 +514,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_LSI;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
   RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.LSIState = RCC_LSI_ON;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -519,6 +536,80 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+  PeriphClkInitStruct.PeriphClockSelection = RCC_PERIPHCLK_RTC;
+  PeriphClkInitStruct.RTCClockSelection = RCC_RTCCLKSOURCE_LSI;
+  if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+
+/**
+  * @brief RTC Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_RTC_Init(void)
+{
+
+  /* USER CODE BEGIN RTC_Init 0 */
+
+  /* USER CODE END RTC_Init 0 */
+
+  RTC_TimeTypeDef sTime = {0};
+  RTC_DateTypeDef sDate = {0};
+
+  /* USER CODE BEGIN RTC_Init 1 */
+
+  /* USER CODE END RTC_Init 1 */
+  /** Initialize RTC Only
+  */
+  hrtc.Instance = RTC;
+  hrtc.Init.HourFormat = RTC_HOURFORMAT_24;
+  hrtc.Init.AsynchPrediv = 127;
+  hrtc.Init.SynchPrediv = 255;
+  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
+  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
+  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
+  if (HAL_RTC_Init(&hrtc) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /* USER CODE BEGIN Check_RTC_BKUP */
+
+  /* USER CODE END Check_RTC_BKUP */
+
+  /** Initialize RTC and set the Time and Date
+  */
+  sTime.Hours = 0x0;
+  sTime.Minutes = 0x0;
+  sTime.Seconds = 0x0;
+  sTime.DayLightSaving = RTC_DAYLIGHTSAVING_NONE;
+  sTime.StoreOperation = RTC_STOREOPERATION_RESET;
+  if (HAL_RTC_SetTime(&hrtc, &sTime, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sDate.WeekDay = RTC_WEEKDAY_MONDAY;
+  sDate.Month = RTC_MONTH_JANUARY;
+  sDate.Date = 0x1;
+  sDate.Year = 0x0;
+
+  if (HAL_RTC_SetDate(&hrtc, &sDate, RTC_FORMAT_BCD) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Enable the WakeUp
+  */
+  if (HAL_RTCEx_SetWakeUpTimer_IT(&hrtc, 9, RTC_WAKEUPCLOCK_CK_SPRE_16BITS) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN RTC_Init 2 */
+
+  /* USER CODE END RTC_Init 2 */
+
 }
 
 /**
