@@ -499,6 +499,7 @@ int main(void)
 
   // Enter the Standby mode
   __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
   HAL_PWR_EnterSTANDBYMode();
   // not reached
   /* USER CODE END 2 */
