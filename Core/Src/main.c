@@ -120,7 +120,7 @@ typedef struct {
 	uint8_t address[DS18B20_ROM_CODE_SIZE];
 } DS18B20Data_t;
 
-void nrf24_setup_radio()
+void nrf24_setup_radio(size_t payloadSize)
 {
 	// --- NRF24 code
 	const uint64_t txPipeAddress = 0x2109BC1971;
@@ -133,7 +133,7 @@ void nrf24_setup_radio()
 	NRF24_setAutoAck(true);
 	NRF24_setChannel(52);
 	// NRF24_setPayloadSize(sizeof(ExchangeData_t));
-	NRF24_setPayloadSize(sizeof(DS18B20Data_t));
+	NRF24_setPayloadSize(payloadSize);
 	printRadioSettings();
 	printf("Tx ready\r\n");
 }
@@ -394,7 +394,7 @@ float ds18b20_get_temp(const uint8_t* rom_code)
     return ds18b20_get_raw_temp(rom_code) / 16.0f;
 }
 
-void measure_and_transmit()
+void measure_temp(DS18B20Data_t * pData1, DS18B20Data_t * pData2)
 {
 #if 0
 	// get address of DS18B20
@@ -421,19 +421,32 @@ void measure_and_transmit()
 	// TODO: dynamically detect DS sensors and their addresses
 	// See: https://www.maximintegrated.com/en/design/technical-documents/app-notes/1/187.html
 
-	DS18B20Data_t tempData;
-
 	ds18b20_start_measure(ds1);
 	ds18b20_start_measure(ds2);
 	HAL_Delay(750);
 
-	ds18b20_get_raw_temp_data(ds1, &tempData);
-	if (tempData.temp == DS18B20_INVALID_TEMP) {
-		printf("Sensor error (1)...\n");
-	} else {
-		printf("T1 = %.1f*C\n", (tempData.temp / 16.0f));
+	if (pData1 != 0) {
+		ds18b20_get_raw_temp_data(ds1, pData1);
+		if (pData1->temp == DS18B20_INVALID_TEMP) {
+			printf("Sensor error (1)...\n");
+		} else {
+			printf("T1 = %.1f*C\n", (pData1->temp / 16.0f));
+		}
 	}
-	if (NRF24_write(&tempData, sizeof(tempData))) {
+
+	if (pData2 != 0) {
+		ds18b20_get_raw_temp_data(ds2, pData2);
+		if (pData2->temp == DS18B20_INVALID_TEMP) {
+			printf("Sensor error (2)...\n");
+		} else {
+			printf("T2 = %.1f*C\n", (pData2->temp / 16.0f));
+		}
+	}
+} // measure_temp()
+
+void transmit_results(DS18B20Data_t * pData1, DS18B20Data_t * pData2)
+{
+	if (pData1 != 0 && NRF24_write(pData1, sizeof(DS18B20Data_t))) {
 		printf("Tx 1 success\r\n");
 	}
 
@@ -441,21 +454,35 @@ void measure_and_transmit()
 	// add delay between Tx's, e.g. 50ms or 100ms, otherwise the second packet gets lost or Rx side sees garbage
 	HAL_Delay(100);
 
-	ds18b20_get_raw_temp_data(ds2, &tempData);
-	if (tempData.temp == DS18B20_INVALID_TEMP) {
-		printf("Sensor error (2)...\n");
-	} else {
-		printf("T2 = %.1f*C\n", (tempData.temp / 16.0f));
-	}
-	if (NRF24_write(&tempData, sizeof(tempData))) {
+	if (pData2 != 0 && NRF24_write(pData2, sizeof(DS18B20Data_t))) {
 		printf("Tx 2 success\r\n");
 	}
+} // transmit_results()
+
+void measure_and_transmit()
+{
+	DS18B20Data_t data1 = { .temp = DS18B20_INVALID_TEMP };
+	DS18B20Data_t data2 = { .temp = DS18B20_INVALID_TEMP };
+
+	nrf24_setup_radio(sizeof(DS18B20Data_t));
+	measure_temp(& data1, & data2);
+	transmit_results(& data1, & data2);
+	NRF24_powerDown();
 
 	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 	HAL_Delay(50);
 	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
 	HAL_Delay(50);
 } // measure_and_transmit()
+
+void enter_standby()
+{
+	// Enter the Standby mode
+	__HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
+	__HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
+	HAL_PWR_EnterSTANDBYMode();
+	// not reached
+}
 
 /* USER CODE END 0 */
 
@@ -494,14 +521,10 @@ int main(void)
   /* USER CODE BEGIN 2 */
 
   blink_hello();
-  nrf24_setup_radio();
   measure_and_transmit();
-
-  // Enter the Standby mode
-  __HAL_PWR_CLEAR_FLAG(PWR_FLAG_WU);
-  __HAL_RTC_WAKEUPTIMER_CLEAR_FLAG(&hrtc, RTC_FLAG_WUTF);
-  HAL_PWR_EnterSTANDBYMode();
+  enter_standby();
   // not reached
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
