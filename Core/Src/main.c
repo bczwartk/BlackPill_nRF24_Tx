@@ -135,7 +135,7 @@ void nrf24_setup_radio(size_t payloadSize)
 	// NRF24_setPayloadSize(sizeof(ExchangeData_t));
 	NRF24_setPayloadSize(payloadSize);
 	printRadioSettings();
-	printf("Tx ready\r\n");
+	printf("Tx ready\n");
 }
 
 
@@ -447,7 +447,7 @@ void measure_temp(DS18B20Data_t * pData1, DS18B20Data_t * pData2)
 void transmit_results(DS18B20Data_t * pData1, DS18B20Data_t * pData2)
 {
 	if (pData1 != 0 && NRF24_write(pData1, sizeof(DS18B20Data_t))) {
-		printf("Tx 1 success\r\n");
+		printf("Tx 1 success\n");
 	}
 
 	// nRF24 needs time to process the first Rx before the second one can be reliably received, esp. with ACK enabled
@@ -455,7 +455,7 @@ void transmit_results(DS18B20Data_t * pData1, DS18B20Data_t * pData2)
 	HAL_Delay(100);
 
 	if (pData2 != 0 && NRF24_write(pData2, sizeof(DS18B20Data_t))) {
-		printf("Tx 2 success\r\n");
+		printf("Tx 2 success\n");
 	}
 } // transmit_results()
 
