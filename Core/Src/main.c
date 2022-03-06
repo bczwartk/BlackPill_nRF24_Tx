@@ -469,10 +469,12 @@ void measure_and_transmit()
 	transmit_results(& data1, & data2);
 	NRF24_powerDown();
 
-	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	HAL_Delay(50);
-	HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
-	HAL_Delay(50);
+	// HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_RESET);
+	HAL_Delay(1);
+	// HAL_GPIO_TogglePin(LED_GPIO_Port, LED_Pin);
+	HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
+	//HAL_Delay(50);
 } // measure_and_transmit()
 
 void enter_standby()
@@ -520,7 +522,9 @@ int main(void)
   MX_RTC_Init();
   /* USER CODE BEGIN 2 */
 
-  blink_hello();
+  // skip initial blink - save energy
+  // blink_hello();
+  HAL_GPIO_WritePin(LED_GPIO_Port, LED_Pin, GPIO_PIN_SET);
   measure_and_transmit();
   enter_standby();
   // not reached
